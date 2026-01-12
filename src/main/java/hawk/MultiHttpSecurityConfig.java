@@ -128,7 +128,6 @@ public class MultiHttpSecurityConfig {
                         .antMatchers(
                                 "/",
                                 "/jwt-auth",
-                                "/token-auth",
                                 "/basic-auth",
                                 "/openapi/**",
                                 "/openapi.yaml",
