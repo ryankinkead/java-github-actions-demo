@@ -54,7 +54,10 @@ public class LoginController {
         String sessId = req.getSession().getId();
         String cookieCode = UUID.randomUUID().toString();
         loginCodes.put("cookie-" + sessId, cookieCode);
-        resp.addCookie(new Cookie("XLOGINID", cookieCode));
+        Cookie cookie = new Cookie("XLOGINID", cookieCode);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(true);
+        resp.addCookie(cookie);
         return "redirect:/login-form-multi";
     }
 
