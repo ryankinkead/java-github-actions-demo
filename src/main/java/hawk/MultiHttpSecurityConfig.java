@@ -108,7 +108,9 @@ public class MultiHttpSecurityConfig {
         @Override
         protected void configure(HttpSecurity http) throws Exception {
             http
-                    .antMatcher("/api/basic/**")
+                    .requestMatchers()
+                        .antMatchers("/api/basic/**", "/search")
+                    .and()
                     .csrf().disable()
                     .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 .and()
