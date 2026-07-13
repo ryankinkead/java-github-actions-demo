@@ -18,3 +18,6 @@ src/main/java/nv.config
 
 # Editor
 .vscode/
+
+# App-generated at runtime (backs UploadController)
+uploads/
