@@ -3,7 +3,7 @@ services:
   db:
     image: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_DB=postgresql
       - POSTGRES_USER=postgresql
@@ -11,7 +11,7 @@ services:
 
   javavulny:
     build: .
-    image: stackhawk/javavulny:latest
+    image: nightvision/javavulny:latest
     container_name: javavulny
     environment:
       SPRING_PROFILES_ACTIVE: postgresql

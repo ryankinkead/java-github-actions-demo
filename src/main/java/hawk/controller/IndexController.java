@@ -9,7 +9,7 @@ public class IndexController {
 
     @GetMapping("/")
     public String index(Model model) {
-        model.addAttribute("title", "StackHawk Java Vulny Application");
+        model.addAttribute("title", "NightVision Java Vulny Application");
         return "index";
     }
 

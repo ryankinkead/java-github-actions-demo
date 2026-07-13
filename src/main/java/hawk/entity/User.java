@@ -25,6 +25,10 @@ public class User implements TenantSupport, Serializable {
     private String description;
     @Column(name = "tenant_id")
     private String tenantId;
+    private String username;
+    private String password;
+    private boolean isAdmin;
+    private String role;
 
     protected User() {}
 
@@ -55,9 +59,44 @@ public class User implements TenantSupport, Serializable {
         return tenantId;
     }
 
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public boolean getIsAdmin() {
+        return isAdmin;
+    }
+
+    public String getRole() {
+        return role;
+    }
 
     @Override
     public void setTenantId(String tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public void setIsAdmin(boolean isAdmin) {
+        this.isAdmin = isAdmin;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 }

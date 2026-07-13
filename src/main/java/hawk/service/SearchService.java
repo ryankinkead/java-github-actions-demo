@@ -29,22 +29,14 @@ public class SearchService {
             @Override
             public List<Item> execute(Connection connection) throws SQLException {
                 List<Item> items = new ArrayList<>();
-                // The wrong way
+                // The wrong way - SQL Injection vulnerability
                 String query = "select id, name, description from ITEM where description like '%" +
-                        search.getSearchText() + "%'";
+                        search.getSearchText() + "%' OR name = '" + search.getSearchText() + "'";
 
-                LOGGER.log(Level.INFO, "SQL Query: {0}",  query);;
+                LOGGER.log(Level.INFO, "SQL Query: {0}", query);
                 ResultSet rs = connection
                         .createStatement()
                         .executeQuery(query);
-
-                /* The righter way, should probably use built in Data Model for this, but this is safe
-                String query = "select id, name, description from ITEM where description like ?";
-                PreparedStatement statement = connection.prepareStatement(query);
-                statement.setString(1, "%" + search.getSearchText() + "%");
-                LOGGER.log(Level.INFO, "SQL Query {0}",  statement);
-                ResultSet rs = statement.executeQuery();
-                */
 
                 while (rs.next()) {
                     items.add(new Item(rs.getLong("id"), rs.getString("name"), rs.getString("description")));
@@ -53,8 +45,30 @@ public class SearchService {
                 return items;
             }
         });
-
     }
 
+    // Add another vulnerable method
+    public List<Item> searchByPrice(String minPrice) {
+        final Session session = (Session) entityManager.unwrap(Session.class);
+        return session.doReturningWork(new ReturningWork<List<Item>>() {
+            @Override
+            public List<Item> execute(Connection connection) throws SQLException {
+                List<Item> items = new ArrayList<>();
+                // Vulnerable by design - SQL Injection
+                String query = "SELECT id, name, description FROM ITEM WHERE price > " + minPrice;
+                
+                LOGGER.log(Level.INFO, "SQL Query: {0}", query);
+                ResultSet rs = connection
+                        .createStatement()
+                        .executeQuery(query);
+
+                while (rs.next()) {
+                    items.add(new Item(rs.getLong("id"), rs.getString("name"), rs.getString("description")));
+                }
+                rs.close();
+                return items;
+            }
+        });
+    }
 
 }

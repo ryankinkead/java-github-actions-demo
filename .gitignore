@@ -8,3 +8,13 @@ bin/
 .settings/
 .env
 .DS_Store
+# NightVision demo run artifacts (regenerated each demo, must not be baselined)
+.nightvision/
+.nvexcavator
+openapi.generated.yml
+traffic.har
+nv.config
+src/main/java/nv.config
+
+# Editor
+.vscode/
