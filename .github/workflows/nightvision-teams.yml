@@ -7,10 +7,11 @@ on:
 env:
   NIGHTVISION_TOKEN: ${{ secrets.NIGHTVISION_TOKEN }}
   NIGHTVISION_TARGET: javaspringvulny-api
-  NIGHTVISION_APP: javaspringvulny-api
   NIGHTVISION_AUTH: javaspringvulny-api
   TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
   
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
+
 jobs:
   test:
     permissions:
@@ -18,36 +19,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: (1) Clone Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       
       - name: (2) Install NightVision
         run: |
           wget -c https://downloads.nightvision.net/binaries/latest/nightvision_latest_linux_amd64.tar.gz -O - | tar -xz
           sudo mv nightvision /usr/local/bin/
-          python -m pip install semgrep --user
 
       - name: (3) Extract API documentation from code
         run: |
-          nightvision swagger extract ./ -t ${{ env.NIGHTVISION_TARGET }} --lang spring || true
+          nightvision swagger extract ./ -t ${{ env.NIGHTVISION_TARGET }} --lang java || true
           if [ ! -e openapi-spec.yml ]; then
               cp backup-openapi-spec.yml openapi-spec.yml
           fi
 
       - name: (4) Start the app
         run: |
-          docker-compose up -d
-          sleep 10
-
+          docker compose up -d --build
+          for i in $(seq 1 36); do curl -kfsS -o /dev/null https://localhost:9000/ && exit 0; sleep 5; done
+          docker compose logs --tail 100; exit 1
       - name: (5) Scan the API
         run: |
-          nightvision scan ${{ env.NIGHTVISION_TARGET }} -a ${{ env.NIGHTVISION_APP }} --auth ${{ env.NIGHTVISION_AUTH }} > scan-results.txt
+          nightvision scan ${{ env.NIGHTVISION_TARGET }} --auth ${{ env.NIGHTVISION_AUTH }} > scan-results.txt
           nightvision export sarif -s "$(head -n 1 scan-results.txt)" --swagger-file openapi-spec.yml
 
-      - name: (6) Upload SARIF file to GitHub Security Alerts if vulnerabilities are found
-        uses: github/codeql-action/upload-sarif@v2
+      - name: (6) Upload findings to GitHub Code Scanning
+        if: success()
+        run: python3 scripts/nightvision-sarif-enrich.py results.sarif -o github.sarif
+      - uses: github/codeql-action/upload-sarif@v4
         if: success()
         with:
-          sarif_file: results.sarif
+          sarif_file: github.sarif
+          # Same category as nightvision.yml, so every workflow updates one set of alerts
+          # for this app instead of each creating its own duplicates.
+          category: .github/workflows/nightvision.yml:test
 
       - name: (7) Install nightvision MSTeams importer and dependencies
         run: |

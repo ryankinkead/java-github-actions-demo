@@ -1,80 +1,143 @@
-## SETP
+## SETUP (one time, before enabling the pipeline)
+# nightvision project create 1-demo
+# nightvision target create javaspringvulny-api https://localhost:9000 --type api
+# nightvision auth playwright create javaspringvulny-api https://localhost:9000
+# CI serves HTTPS via docker-compose.ci.yml to match that target URL.
+# Then add a NightVision API token as the NIGHTVISION_TOKEN repository secret.
 
-## Run before activating pipeline
-# nightvision app create javaspringvulny-api
-# nightvision target create javaspringvulny-api https://127.0.0.1:9000 --type api
-# nightvision auth playwright create javaspringvulny-api https://127.0.0.1:9000
-
-## Optional steps can be preformed locally or in the pipeline
-# nightvision swagger extract . -t javaspringvulny-api --lang java
-# nightvision scan javaspringvulny-api --auth javaspringvulny-api
-
-name: Test Case - Java Spring App
+name: NightVision DAST - Java Spring App
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      max_duration_minutes:
+        description: Scan time budget in minutes (30-480). Longer scans crawl deeper.
+        default: "30"
+        required: false
+
+# One scan of the shared target at a time; a newer push queues behind the running scan.
+concurrency:
+  group: nightvision-${{ github.workflow }}
+  cancel-in-progress: false
 
 env:
   NIGHTVISION_TOKEN: ${{ secrets.NIGHTVISION_TOKEN }}
   NIGHTVISION_TARGET: javaspringvulny-api
   NIGHTVISION_AUTH: javaspringvulny-api
-  
-jobs:
-  test:
-    permissions:
-      security-events: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: (1) Clone Code
-        uses: actions/checkout@v3
-      
-      - name: (2) Install NightVision
-        run: |
-            wget -c https://downloads.nightvision.net/binaries/latest/nightvision_latest_linux_amd64.tar.gz -O - | tar -xz; sudo mv nightvision /usr/local/bin/     
+  APP_URL: https://localhost:9000
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
 
-      - name: (3) Extract API documentation from code
+jobs:
+  # The job id stays "test": Code Scanning keys results on workflow file + job id,
+  # so renaming it would orphan the alerts from earlier runs.
+  test:
+    name: NightVision DAST
+    # Pull requests from forks get no secrets, so they cannot scan.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Install NightVision CLI
         run: |
-          nightvision swagger extract . -t ${NIGHTVISION_TARGET} --lang java || true
-          if [ ! -e openapi-spec.yml ]; then
-              cp backup-openapi-spec.yml openapi-spec.yml
+          wget -qO- https://downloads.nightvision.net/binaries/latest/nightvision_latest_linux_amd64.tar.gz | tar -xz
+          sudo mv nightvision /usr/local/bin/
+          nightvision version
+
+      - name: Map the API from source (source intelligence)
+        run: |
+          nightvision swagger extract . -t "$NIGHTVISION_TARGET" --lang java || true
+          if [ ! -s openapi-spec.yml ]; then
+            echo "::warning::Source intelligence produced no spec; falling back to backup-openapi-spec.yml"
+            cp backup-openapi-spec.yml openapi-spec.yml
           fi
 
-      - name: (4) Start the app
-        run: docker compose up -d; sleep 10
-
-      - name: (5) Scan the API
+      - name: Start the app
         run: |
-          nightvision scan ${NIGHTVISION_TARGET} --auth ${NIGHTVISION_AUTH} > scan-results.txt
-          nightvision export sarif -s "$(head -n 1 scan-results.txt)" --swagger-file openapi-spec.yml
+          docker compose up -d --build
+          for i in $(seq 1 36); do
+            if curl -kfsS -o /dev/null "$APP_URL/"; then
+              echo "App is up after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::App did not respond at $APP_URL within 3 minutes"
+          docker compose logs --tail 100
+          exit 1
 
-      - name: (5.5) Remap info-level findings to warning for GitHub visibility
+      - name: Run DAST scan
+        id: scan
+        env:
+          DURATION: ${{ inputs.max_duration_minutes || '30' }}
         run: |
-          python3 << 'EOF'
-          import json
-    
-          # Read the SARIF file
-          with open('results.sarif', 'r') as f:
-            sarif = json.load(f)
-    
-          # Remap "note" level to "warning" so GitHub displays them
-          for run in sarif.get('runs', []):
-            for result in run.get('results', []):
-              if result.get('level') == 'note':
-                  result['level'] = 'warning'
-                  print(f"Remapped: {result.get('message', {}).get('text', 'Unknown')}")
-    
-          # Write back the modified SARIF
-          with open('results.sarif', 'w') as f:
-            json.dump(sarif, f, indent=2)
-    
-          print("\n✅ Successfully remapped info-level findings to warning")
-          EOF
+          set +e
+          # The scan ID is printed to stdout; logs (which carry other UUIDs) go to stderr.
+          nightvision scan "$NIGHTVISION_TARGET" --auth "$NIGHTVISION_AUTH" \
+            --max-duration-minutes "$DURATION" | tee scan-output.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          scan_id=$(grep -oEm1 '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' scan-output.txt || true)
+          echo "scan_id=$scan_id" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ -z "$scan_id" ]; then
+            echo "::error::No scan ID in the NightVision output"
+            exit 1
+          fi
+          # A scan that ends FAILED can still hold valid findings; keep them as artifacts, then fail the job below.
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::nightvision scan exited $status; saving its partial findings as artifacts only"
+          fi
 
-      - name: (6) Upload SARIF file to GitHub Security Alerts if Vulnerabilities are found
-        uses: github/codeql-action/upload-sarif@v3
-        if: success()
+      - name: Export and enrich SARIF
+        if: always() && steps.scan.outputs.scan_id != ''
+        env:
+          NIGHTVISION_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Findings triaged as false positive or won't fix in NightVision stay out of GitHub.
+          nightvision export sarif -s "${{ steps.scan.outputs.scan_id }}" \
+            --swagger-file openapi-spec.yml \
+            --exclude-resolution false_positive,wont_fix \
+            -o nightvision-raw.sarif
+          python3 scripts/nightvision-sarif-enrich.py nightvision-raw.sarif -o results.sarif
+
+      # Only a clean scan updates Code Scanning: a partial result would mark every
+      # finding it missed as fixed. Partial findings still land in the artifacts.
+      - name: Upload to GitHub Code Scanning
+        if: always() && hashFiles('results.sarif') != '' && steps.scan.outputs.status == '0'
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
+
+      - name: Keep scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightvision-scan-${{ github.run_number }}
+          path: |
+            scan-output.txt
+            nightvision-raw.sarif
+            results.sarif
+            openapi-spec.yml
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Fail if the scan did not finish cleanly
+        if: steps.scan.outputs.status != '' && steps.scan.outputs.status != '0'
+        run: |
+          echo "::error::nightvision scan exited ${{ steps.scan.outputs.status }}"
+          exit 1
+
+      - name: Stop the app
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,9 @@
+# CI override: serve HTTPS, because the NightVision CI target is https://localhost:9000.
+# Local demos keep plain HTTP from docker-compose.yml.
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+services:
+  javavulny:
+    environment:
+      SERVER_SSL_ENABLED: "true"
+      # javavulny.p12 still carries the password it was created with.
+      SERVER_SSL_KEY_STORE_PASSWORD: stackhawk
