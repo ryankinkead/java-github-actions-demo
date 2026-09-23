@@ -38,6 +38,8 @@ CWE_BY_NAME = [
     (r"sql injection", 89),
     (r"spring4shell", 94),
     (r"cross site scripting|xss", 79),
+    (r"server side request forgery|ssrf", 918),
+    (r"remote file inclusion", 98),
     (r"reflected unencoded", 116),
     (r"httponly", 1004),
     (r"without secure flag", 614),
