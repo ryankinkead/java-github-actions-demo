@@ -94,9 +94,9 @@ jobs:
             echo "::error::No scan ID in the NightVision output"
             exit 1
           fi
-          # A scan that ends FAILED can still hold valid findings; report them, then fail the job below.
+          # A scan that ends FAILED can still hold valid findings; keep them as artifacts, then fail the job below.
           if [ "$status" -ne 0 ]; then
-            echo "::warning::nightvision scan exited $status; exporting whatever findings it recorded"
+            echo "::warning::nightvision scan exited $status; saving its partial findings as artifacts only"
           fi
 
       - name: Export and enrich SARIF
@@ -111,8 +111,10 @@ jobs:
             -o nightvision-raw.sarif
           python3 scripts/nightvision-sarif-enrich.py nightvision-raw.sarif -o results.sarif
 
+      # Only a clean scan updates Code Scanning: a partial result would mark every
+      # finding it missed as fixed. Partial findings still land in the artifacts.
       - name: Upload to GitHub Code Scanning
-        if: always() && hashFiles('results.sarif') != ''
+        if: always() && hashFiles('results.sarif') != '' && steps.scan.outputs.status == '0'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
