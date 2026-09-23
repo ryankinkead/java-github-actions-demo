@@ -11,6 +11,8 @@ env:
   SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
   SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
   
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
+
 jobs:
   test:
     permissions:
@@ -33,7 +35,7 @@ jobs:
       - name: (4) Start the app
         run: |
           docker compose up -d --build
-          for i in $(seq 1 36); do curl -fsS -o /dev/null http://127.0.0.1:9000/ && exit 0; sleep 5; done
+          for i in $(seq 1 36); do curl -kfsS -o /dev/null https://localhost:9000/ && exit 0; sleep 5; done
           docker compose logs --tail 100; exit 1
       - name: (5) Scan the API
         run: |

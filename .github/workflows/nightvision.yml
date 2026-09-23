@@ -1,7 +1,8 @@
 ## SETUP (one time, before enabling the pipeline)
 # nightvision project create 1-demo
-# nightvision target create javaspringvulny-api http://127.0.0.1:9000 --type api
-# nightvision auth playwright create javaspringvulny-api http://127.0.0.1:9000
+# nightvision target create javaspringvulny-api https://localhost:9000 --type api
+# nightvision auth playwright create javaspringvulny-api https://localhost:9000
+# CI serves HTTPS via docker-compose.ci.yml to match that target URL.
 # Then add a NightVision API token as the NIGHTVISION_TOKEN repository secret.
 
 name: NightVision DAST - Java Spring App
@@ -27,7 +28,8 @@ env:
   NIGHTVISION_TOKEN: ${{ secrets.NIGHTVISION_TOKEN }}
   NIGHTVISION_TARGET: javaspringvulny-api
   NIGHTVISION_AUTH: javaspringvulny-api
-  APP_URL: http://127.0.0.1:9000
+  APP_URL: https://localhost:9000
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
 
 jobs:
   # The job id stays "test": Code Scanning keys results on workflow file + job id,
@@ -64,7 +66,7 @@ jobs:
         run: |
           docker compose up -d --build
           for i in $(seq 1 36); do
-            if curl -fsS -o /dev/null "$APP_URL/"; then
+            if curl -kfsS -o /dev/null "$APP_URL/"; then
               echo "App is up after $((i * 5))s"
               exit 0
             fi
