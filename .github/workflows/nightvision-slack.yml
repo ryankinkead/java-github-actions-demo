@@ -1,9 +1,7 @@
 name: Test Case - Slack - Java Spring App
 
 on:
-  push:
-        branches:
-          - main
+  # Manual only: nightvision.yml already scans every push.
   workflow_dispatch:
 
 env:
@@ -20,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: (1) Clone Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       
       - name: (2) Install NightVision
         run: |
-            wget -c https://downloads.nightvision.net/binaries/latest/nightvision_latest_linux_amd64.tar.gz -O - | tar -xz; sudo mv nightvision /usr/local/bin/
-                    python -m pip install semgrep --user
+          wget -c https://downloads.nightvision.net/binaries/latest/nightvision_latest_linux_amd64.tar.gz -O - | tar -xz
+          sudo mv nightvision /usr/local/bin/
       - name: (3) Extract API documentation from code
         run: |
           nightvision swagger extract . -t ${NIGHTVISION_TARGET} --lang java || true
@@ -33,17 +31,24 @@ jobs:
               cp backup-openapi-spec.yml openapi-spec.yml
           fi
       - name: (4) Start the app
-        run: docker compose up -d; sleep 10
-
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 36); do curl -fsS -o /dev/null http://127.0.0.1:9000/ && exit 0; sleep 5; done
+          docker compose logs --tail 100; exit 1
       - name: (5) Scan the API
         run: |
           nightvision scan ${NIGHTVISION_TARGET} --auth ${NIGHTVISION_AUTH} > scan-results.txt
           nightvision export sarif -s "$(head -n 1 scan-results.txt)" --swagger-file openapi-spec.yml
-      - name: (6) Upload SARIF file to GitHub Security Alerts if vulnerabilities are found
-        uses: github/codeql-action/upload-sarif@v2
+      - name: (6) Upload findings to GitHub Code Scanning
+        if: success()
+        run: python3 scripts/nightvision-sarif-enrich.py results.sarif -o github.sarif
+      - uses: github/codeql-action/upload-sarif@v4
         if: success()
         with:
-          sarif_file: results.sarif
+          sarif_file: github.sarif
+          # Same category as nightvision.yml, so every workflow updates one set of alerts
+          # for this app instead of each creating its own duplicates.
+          category: .github/workflows/nightvision.yml:test
       - name: (7) Install nightvision slack importer and dependencies
         run: |
           git clone https://github.com/ryan1640/nightvision_slack_importer.git

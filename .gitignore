@@ -21,3 +21,10 @@ src/main/java/nv.config
 
 # App-generated at runtime (backs UploadController)
 uploads/
+
+# NightVision CI outputs
+scan-output.txt
+scan-results.txt
+nightvision-raw.sarif
+results.sarif
+github.sarif
