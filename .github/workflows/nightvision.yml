@@ -81,12 +81,26 @@ jobs:
         env:
           DURATION: ${{ inputs.max_duration_minutes || '30' }}
         run: |
-          set +e
-          # The scan ID is printed to stdout; logs (which carry other UUIDs) go to stderr.
-          nightvision scan "$NIGHTVISION_TARGET" --auth "$NIGHTVISION_AUTH" \
-            --max-duration-minutes "$DURATION" | tee scan-output.txt
-          status=${PIPESTATUS[0]}
-          set -e
+          # The private-scan relay sometimes drops mid-scan ("errors accepting streams from
+          # relay"). Retry once with a fresh scan, switching relay transport between attempts.
+          for attempt in 1 2; do
+            transport=$([ "$attempt" = 1 ] && echo yamux || echo quic)
+            echo "::group::Scan attempt $attempt (relay transport: $transport)"
+            set +e
+            # The scan ID is printed to stdout; logs (which carry other UUIDs) go to stderr.
+            nightvision scan "$NIGHTVISION_TARGET" --auth "$NIGHTVISION_AUTH" \
+              --max-duration-minutes "$DURATION" \
+              --force-proxy-transport-technology "$transport" \
+              > >(tee scan-output.txt) 2> >(tee scan-log.txt >&2)
+            status=$?
+            set -e
+            sleep 1  # let the tee processes flush
+            echo "::endgroup::"
+            if [ "$status" -eq 0 ] || ! grep -q "errors accepting streams from relay" scan-log.txt; then
+              break
+            fi
+            echo "::warning::Relay dropped on attempt $attempt; retrying with a new scan"
+          done
           scan_id=$(grep -oEm1 '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' scan-output.txt || true)
           echo "scan_id=$scan_id" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -126,6 +140,7 @@ jobs:
           name: nightvision-scan-${{ github.run_number }}
           path: |
             scan-output.txt
+            scan-log.txt
             nightvision-raw.sarif
             results.sarif
             openapi-spec.yml
